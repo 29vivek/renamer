@@ -1,15 +1,7 @@
-# from selenium import webdriver
-
-# PATH = '/home/vivek/selenium/chromedriver'
-# driver = webdriver.Chrome(PATH)
-
-# driver.get('https://www.google.com/search?q=breaking+bad+season+1+episodes')
-
-# print(driver.title)
-# # driver.quit()
-
 import sys
 import os
+import re
+import api
 from PyQt5 import QtWidgets as qtw
 from PyQt5 import QtGui as qtg
 from PyQt5 import QtCore as qtc
@@ -21,10 +13,9 @@ class Application(qtw.QApplication):
 
         self.mainWindow = MainWindow()
         self.mainWindow.setWindowTitle('Renamer')
-        self.mainWindow.setFixedSize(550, 375)
+        self.mainWindow.setFixedSize(500, 375)
         self.mainWindow.move(150, 100)
         self.mainWindow.show()
-
 
 class MainWindow(qtw.QWidget):
 
@@ -55,15 +46,14 @@ class MainWindow(qtw.QWidget):
         
         layout.addWidget(qtw.QLabel('Separator'), 2, 0)
 
-        self.episodeNamesCheckBox = qtw.QCheckBox('Get episode names from the web. Will be auto skipped if sources fail.')
+        self.episodeNamesCheckBox = qtw.QCheckBox('Also include episode names')
         self.episodeNamesCheckBox.setChecked(False)
 
-        separators = {'Space': ' ', 'Period': '.', 'Dash': '-'}
+        self.separators = {'Space': ' ', 'Period': '.', 'Dash': '-'}
         separatorRadios = []
 
-        for separator in separators:
+        for separator in self.separators:
             separatorRadios.append(qtw.QRadioButton(separator))
-            separatorRadios[-1].separator = separators[separator]
             separatorRadios[-1].toggled.connect(self.separatorToggled) 
 
         separatorRadios[0].setChecked(True)
@@ -81,7 +71,7 @@ class MainWindow(qtw.QWidget):
         layout.addWidget(qtw.QLabel('Example'), 3, 0)
         layout.addWidget(self.exampleText, 3, 1)
 
-        
+
         self.episodeNamesCheckBox.stateChanged.connect(self.namesChecked)
         layout.addWidget(self.episodeNamesCheckBox, 4, 0, 1, -1) # column span of -1
 
@@ -91,18 +81,20 @@ class MainWindow(qtw.QWidget):
 
         sourceLayout = qtw.QVBoxLayout()
 
-        radioApi = qtw.QRadioButton('API')
+        radioFile = qtw.QRadioButton('Manual info.txt file')
+        radioFile.setToolTip('Place episode names in a info.txt file, separated by season numbers and new lines!')
+        radioFile.setEnabled(False)
+        radioApi = qtw.QRadioButton('TVMaze API')
         radioApi.setChecked(True)
+        radioApi.setToolTip('I see you\'re a man of culture :)')
         radioApi.setEnabled(False)
-        radioScrape = qtw.QRadioButton('Web Scrape (i see you\'re a man of culture)')
-        radioScrape.setEnabled(False)
 
+        sourceLayout.addWidget(radioFile)
         sourceLayout.addWidget(radioApi)
-        sourceLayout.addWidget(radioScrape)
 
         self.sourceGroup = qtw.QButtonGroup(self)
-        self.sourceGroup.addButton(radioApi, 1)
-        self.sourceGroup.addButton(radioScrape, 2)
+        self.sourceGroup.addButton(radioFile, 1)
+        self.sourceGroup.addButton(radioApi, 2)
 
         layout.addLayout(sourceLayout, 5, 1)
 
@@ -110,10 +102,11 @@ class MainWindow(qtw.QWidget):
         
 
         self.startButton = qtw.QPushButton('Lets Go!')
-        self.startButton.setToolTip('Something you never knew you needed.')
+        self.startButton.setToolTip('Say your prayers :D')
         self.startButton.clicked.connect(self.start)
 
         closeButton = qtw.QPushButton('Close')
+        closeButton.setToolTip(':(')
         closeButton.clicked.connect(self.close)
         
         buttonLayout.addWidget(self.startButton)
@@ -132,17 +125,70 @@ class MainWindow(qtw.QWidget):
         folder = qtw.QFileDialog.getExistingDirectory(self, 'Select Directory')
         self.pathInput.setText(folder)
 
-
     def start(self):
 
+        messageBox = qtw.QMessageBox()
+
         if self.titleInput.text() == '' or self.pathInput.text() == '':
-            qtw.QMessageBox.critical(self, 'Failed', 'Title/Path cannot be empty')
+            messageBox.critical(self, 'Failed', 'Title/Path cannot be empty.')
         else:
-            for file in os.listdir(self.pathInput.text()):
-                print(file)
+            overview = ''
+            info = None
+
+            overview = overview + f'chosen separator: {self.separatorGroup.checkedButton().text()}\n'
+            overview = overview + 'chosen to ' + ('include ' if self.episodeNamesCheckBox.isChecked() else 'exclude ') + 'episode names.\n'
+            overview = overview + (f'source: {self.sourceGroup.checkedButton().text()}\n' if self.episodeNamesCheckBox.isChecked() else '\n')
+            
+            if self.episodeNamesCheckBox.isChecked():
+                if self.sourceGroup.checkedId() == 1:
+                    # find info.txt file in root directory mentioned and load data onto info.
+                    try:
+                        info = self.readInfoFromFile(os.path.join(self.pathInput.text(), 'info.txt'))
+                        overview = overview + 'found data for {} seasons.\n'.format(len(info.keys()))
+                    except:
+                        messageBox.critical(self, 'Failed', 'File info.txt not found in root directory.')
+                        return
+    
+                else:
+                    info = api.getDataFor(self.titleInput.text())
+                    if info['status'] == 1:
+                        try:
+                            for key in ['name', 'language', 'premiered']:
+                                overview = overview + f'{key}: {info[key]}\n'
+                            overview = overview + 'found data for {} seasons.\n'.format(len(info['episodes'].keys()))
+                            self.writeInfoToFile(os.path.join(self.pathInput.text(), 'info.txt'), info['episodes'])
+                        
+                        except:
+                            messageBox.critical(self, 'Failed', 'Root directory probably doesn\'t exist.')
+                            return
+                    else:
+                        messageBox.critical(self, 'Failed', 'Bad input/network connection. You could always try again.')
+                        return
+            
+            print(info if self.sourceGroup.checkedId() == 1 else info['episodes'])
+
+            subfoldersPathSorted = self.sortedAlphanumeric([f.path for f in os.scandir(self.pathInput.text()) if f.is_dir()])
+            # print(subfoldersPathSorted)
+
+            overview = overview + f'found {len(subfoldersPathSorted)} folders in root path: {self.pathInput.text()}\n'
+            overview = overview + 'DO YOU WISH TO CONTINUE?\n'
+
+            confirmation = messageBox.question(self, 'Details', overview, messageBox.Yes, messageBox.No)
+
+            if confirmation == messageBox.Yes:
+                # make the UI show a busy indicator or something here
+
+                self.rename(subfoldersPathSorted, info if self.sourceGroup.checkedId() == 1 else info['episodes'])
+            else:
+                messageBox.information(self, 'Alert', 'Operation Cancelled.')
+
+
+    def rename(self, subfolders, seasonInfo):
+        if seasonInfo is not None:
+            pass
 
     def namesChecked(self):
-        separator = self.separatorGroup.checkedButton().separator
+        separator = self.separators[self.separatorGroup.checkedButton().text()]
         self.exampleText.setText(self.exampleString.format(separator, separator, name=(f'{separator}Pilot') if self.episodeNamesCheckBox.isChecked() else ''))
         
         self.sourceText.setEnabled(self.episodeNamesCheckBox.isChecked())
@@ -153,8 +199,39 @@ class MainWindow(qtw.QWidget):
 
         radioButton = self.sender()
         if radioButton.isChecked():
-            self.exampleText.setText(self.exampleString.format(radioButton.separator, radioButton.separator, name=(f'{radioButton.separator}Pilot') if self.episodeNamesCheckBox.isChecked() else ''))
+            self.exampleText.setText(self.exampleString.format(self.separators[radioButton.text()], self.separators[radioButton.text()], name=(f'{self.separators[radioButton.text()]}Pilot') if self.episodeNamesCheckBox.isChecked() else ''))
 
+    @staticmethod
+    def sortedAlphanumeric(data):
+        convert = lambda text: int(text) if text.isdigit() else text.lower()
+        alphanumKey = lambda key: [ convert(c) for c in re.split('([0-9]+)', key) ] 
+        return sorted(data, key=alphanumKey)
+
+    @staticmethod
+    def readInfoFromFile(path):
+        info = {}
+        lines = []
+        with open(path, 'r') as file_:
+            lines = file_.readlines()
+        
+        seasonSeparators = [i for i, x in enumerate(lines) if x.startswith(('Season', 'season', os.path.dirname(path)))]
+        for i, index in enumerate(seasonSeparators):
+            info[f'Season {i+1}'] = (([(j+1, x.strip('\n')) for j, x in enumerate(lines[index+1:seasonSeparators[i+1]])]) if i+1 < len(seasonSeparators) else ([(j+1, x.strip('\n')) for j, x in enumerate(lines[index+1:])]))
+
+        return info
+
+    @staticmethod
+    def writeInfoToFile(path, info):
+        lines = []
+        for season in info:
+            # whichSeason = re.findall(r'\d+', season)[0]
+            lines.append(season + '\n')
+            for (_,  episodeName) in info[season]:
+                lines.append(episodeName + '\n')
+        
+        with open(path, 'w+') as file_:
+            file_.writelines(lines)
+        
 
 if __name__ == '__main__':
 
