@@ -132,19 +132,26 @@ class MainWindow(qtw.QWidget):
         if self.titleInput.text() == '' or self.pathInput.text() == '':
             messageBox.critical(self, 'Failed', 'Title/Path cannot be empty.')
         else:
-            overview = ''
+            overview = []
             info = None
 
-            overview = overview + f'chosen separator: {self.separatorGroup.checkedButton().text()}\n'
-            overview = overview + 'chosen to ' + ('include ' if self.episodeNamesCheckBox.isChecked() else 'exclude ') + 'episode names.\n'
-            overview = overview + (f'source: {self.sourceGroup.checkedButton().text()}\n' if self.episodeNamesCheckBox.isChecked() else '\n')
+            chosenSeparator = self.separatorGroup.checkedButton().text()
+            includeNames = self.episodeNamesCheckBox.isChecked()
+            if includeNames:
+                sourceId = self.sourceGroup.checkedId()
+            else:
+                sourceId = 0
+
+            overview.append(f'chosen separator: {chosenSeparator}')
+            overview.append(f'chosen to {"include" if includeNames else "exclude"} episode names.')
             
-            if self.episodeNamesCheckBox.isChecked():
-                if self.sourceGroup.checkedId() == 1:
+            if includeNames:
+                pathToFile = os.path.join(self.pathInput.text(), 'info.txt')
+                if sourceId == 1:
                     # find info.txt file in root directory mentioned and load data onto info.
                     try:
-                        info = self.readInfoFromFile(os.path.join(self.pathInput.text(), 'info.txt'))
-                        overview = overview + 'found data for {} seasons.\n'.format(len(info.keys()))
+                        info = self.readInfoFromFile(pathToFile)
+                        overview.append(f'found data for {len(info.keys())} seasons.')
                     except:
                         messageBox.critical(self, 'Failed', 'File info.txt not found in root directory.')
                         return
@@ -153,10 +160,13 @@ class MainWindow(qtw.QWidget):
                     info = api.getDataFor(self.titleInput.text())
                     if info['status'] == 1:
                         try:
-                            for key in ['name', 'language', 'premiered']:
-                                overview = overview + f'{key}: {info[key]}\n'
-                            overview = overview + 'found data for {} seasons.\n'.format(len(info['episodes'].keys()))
-                            self.writeInfoToFile(os.path.join(self.pathInput.text(), 'info.txt'), info['episodes'])
+                            for key in ['name', 'language', 'genres', 'premiered']:
+                                overview.append(f'{key}: {info[key]}')
+                            
+                            # take off unnecessary information
+                            info = info['episodes']
+                            overview.append(f'found data for {len(info.keys())} seasons.')
+                            self.writeInfoToFile(pathToFile, info)
                         
                         except:
                             messageBox.critical(self, 'Failed', 'Root directory probably doesn\'t exist.')
@@ -165,41 +175,48 @@ class MainWindow(qtw.QWidget):
                         messageBox.critical(self, 'Failed', 'Bad input/network connection. You could always try again.')
                         return
             
-            print(info if self.sourceGroup.checkedId() == 1 else info['episodes'])
+            print(info)
 
             subfoldersPathSorted = self.sortedAlphanumeric([f.path for f in os.scandir(self.pathInput.text()) if f.is_dir()])
             # print(subfoldersPathSorted)
 
-            overview = overview + f'found {len(subfoldersPathSorted)} folders in root path: {self.pathInput.text()}\n'
-            overview = overview + 'DO YOU WISH TO CONTINUE?\n'
+            overview.append(f'found {len(subfoldersPathSorted)} folders in root path: {self.pathInput.text()}')
+            overview.append('DO YOU WISH TO CONTINUE?')
 
-            confirmation = messageBox.question(self, 'Details', overview, messageBox.Yes, messageBox.No)
+            confirmation = messageBox.question(self, 'Details', '\n'.join(overview), messageBox.Yes, messageBox.No)
 
             if confirmation == messageBox.Yes:
                 # make the UI show a busy indicator or something here
+                
+                self.rename(
+                    subfolders=subfoldersPathSorted,
+                    seasonInfo=info,
+                    separator=self.separators[chosenSeparator]
+                )
 
-                self.rename(subfoldersPathSorted, info if self.sourceGroup.checkedId() == 1 else info['episodes'])
             else:
                 messageBox.information(self, 'Alert', 'Operation Cancelled.')
 
 
-    def rename(self, subfolders, seasonInfo):
-        if seasonInfo is not None:
-            pass
+    def rename(self, subfolders, seasonInfo, separator):
+        
+        pass
 
     def namesChecked(self):
         separator = self.separators[self.separatorGroup.checkedButton().text()]
-        self.exampleText.setText(self.exampleString.format(separator, separator, name=(f'{separator}Pilot') if self.episodeNamesCheckBox.isChecked() else ''))
+        includeNames = self.episodeNamesCheckBox.isChecked()
+        self.exampleText.setText(self.exampleString.format(separator, separator, name=(f'{separator}Pilot') if includeNames else ''))
         
-        self.sourceText.setEnabled(self.episodeNamesCheckBox.isChecked())
+        self.sourceText.setEnabled(includeNames)
         for radio in self.sourceGroup.buttons():
-            radio.setEnabled(self.episodeNamesCheckBox.isChecked())     
+            radio.setEnabled(includeNames)     
         
     def separatorToggled(self):
 
         radioButton = self.sender()
+        separator = self.separators[radioButton.text()]
         if radioButton.isChecked():
-            self.exampleText.setText(self.exampleString.format(self.separators[radioButton.text()], self.separators[radioButton.text()], name=(f'{self.separators[radioButton.text()]}Pilot') if self.episodeNamesCheckBox.isChecked() else ''))
+            self.exampleText.setText(self.exampleString.format(separator, separator, name=(f'{separator}Pilot') if self.episodeNamesCheckBox.isChecked() else ''))
 
     @staticmethod
     def sortedAlphanumeric(data):
