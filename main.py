@@ -175,7 +175,7 @@ class MainWindow(qtw.QWidget):
                         messageBox.critical(self, 'Failed', 'Bad input/network connection. You could always try again.')
                         return
             
-            print(info)
+            # print(info)
 
             subfoldersPathSorted = self.sortedAlphanumeric([f.path for f in os.scandir(self.pathInput.text()) if f.is_dir()])
             # print(subfoldersPathSorted)
@@ -189,8 +189,9 @@ class MainWindow(qtw.QWidget):
                 # make the UI show a busy indicator or something here
                 
                 self.rename(
+                    title = os.path.basename(self.pathInput.text()),
                     subfolders=subfoldersPathSorted,
-                    seasonInfo=info,
+                    info=info,
                     separator=self.separators[chosenSeparator]
                 )
 
@@ -198,9 +199,55 @@ class MainWindow(qtw.QWidget):
                 messageBox.information(self, 'Alert', 'Operation Cancelled.')
 
 
-    def rename(self, subfolders, seasonInfo, separator):
+    def rename(self, title, subfolders, info, separator):
+
+        progress = qtw.QProgressDialog(self)
+        progress.setWindowModality(qtc.Qt.WindowModal)
+        progress.setWindowTitle('Hang in there')
+        progress.setLabel(qtw.QLabel("Doing some magic..."))
+        # enable custom window hint
+        progress.setWindowFlags(progress.windowFlags() | qtc.Qt.CustomizeWindowHint)
+        # disable (but not hide) close button
+        progress.setWindowFlags(progress.windowFlags() & ~qtc.Qt.WindowCloseButtonHint)
+        # remove the cancel button
+        progress.setCancelButton(None)
+        progress.setAutoClose(True)
+
+        progress.setMaximum(len(subfolders))
         
-        pass
+        videoExtensions = ['.mp4', '.mkv', '.avi']
+
+        for i, folder in enumerate(subfolders):
+            progress.setValue(i)
+             
+            filesInFolder = os.listdir(folder)
+            videos = self.sortedAlphanumeric([file_ for file_ in filesInFolder if os.path.splitext(file_)[1] in videoExtensions])
+            
+            if info is not None:
+                expectedEpisodes = len(info[f'Season {i+1}'].keys())
+                if len(videos) != expectedEpisodes:
+                    qtw.QMessageBox.critical(self, 'Failed', f'Mismatch in Season {i+1}. Didn\'t find expected number of episodes ({expectedEpisodes})')
+                    return
+            
+            # get list of videos in folder. for a given video, if subtitle with same name exists, rename subtitle too, else don't bother.
+            
+            template = '{title} {which} {name}{extension}' if info is not None else '{title} {which}{extension}'
+            for j, video in enumerate(videos):
+                
+                newName = separator.join(template.format(title=title, which=f'S{i+1:02d}E{j+1:02d}', name=info[f'Season {i+1}'][j+1] if info is not None else '', extension=os.path.splitext(video)[1]).split(' '))
+                # print(f'{j+1}: {os.path.join(folder, video)}')
+                # print(newName)
+
+                os.rename(os.path.join(folder, video), os.path.join(folder, newName))
+
+                fileName, _ = os.path.splitext(video)
+                if os.path.isfile(os.path.join(folder, fileName + '.srt')):
+                    newFileName, _ = os.path.splitext(newName)
+                    os.rename(os.path.join(folder, fileName + '.srt'), os.path.join(folder, newFileName + '.srt'))
+  
+            
+        progress.setValue(len(subfolders))
+        
 
     def namesChecked(self):
         separator = self.separators[self.separatorGroup.checkedButton().text()]
@@ -230,10 +277,11 @@ class MainWindow(qtw.QWidget):
         lines = []
         with open(path, 'r') as file_:
             lines = file_.readlines()
-        
-        seasonSeparators = [i for i, x in enumerate(lines) if x.startswith(('Season', 'season', os.path.dirname(path)))]
+
+        # print(os.path.basename(os.path.dirname(path)))
+        seasonSeparators = [i for i, x in enumerate(lines) if x.startswith(('Season', 'season', os.path.basename(os.path.dirname(path))))]
         for i, index in enumerate(seasonSeparators):
-            info[f'Season {i+1}'] = (([(j+1, x.strip('\n')) for j, x in enumerate(lines[index+1:seasonSeparators[i+1]])]) if i+1 < len(seasonSeparators) else ([(j+1, x.strip('\n')) for j, x in enumerate(lines[index+1:])]))
+            info[f'Season {i+1}'] = ({j+1: name.strip('\n') for j, name in enumerate(lines[index+1:seasonSeparators[i+1]])}) if i+1 < len(seasonSeparators) else ({j+1: name.strip('\n') for j, name in enumerate(lines[index+1:])})
 
         return info
 
@@ -243,8 +291,8 @@ class MainWindow(qtw.QWidget):
         for season in info:
             # whichSeason = re.findall(r'\d+', season)[0]
             lines.append(season + '\n')
-            for (_,  episodeName) in info[season]:
-                lines.append(episodeName + '\n')
+            for episode in info[season]:
+                lines.append(info[season][episode] + '\n')
         
         with open(path, 'w+') as file_:
             file_.writelines(lines)

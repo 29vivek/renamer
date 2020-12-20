@@ -46,13 +46,13 @@ def getDataFor(title):
             # print(f"Season {episode['season']} Episode {episode['number']} {episode['name']}")
 
             if int(episode['season']) != seasonNumber:
-                seasonInfo[f'Season {seasonNumber}'] = [ep for ep in episodeList]
+                seasonInfo[f'Season {seasonNumber}'] = {number: name for number, name in episodeList}
                 seasonNumber = seasonNumber + 1
                 episodeList.clear()
             
             episodeList.append((episode['number'], episode['name']))
 
-        seasonInfo[f'Season {seasonNumber}'] = episodeList    
+        seasonInfo[f'Season {seasonNumber}'] = {number: name for number, name in episodeList}    
         
         info['episodes'] = seasonInfo
         info['status'] = 1
