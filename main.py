@@ -112,7 +112,13 @@ class MainWindow(qtw.QWidget):
         buttonLayout.addWidget(self.startButton)
         buttonLayout.addWidget(closeButton)
 
-        layout.addLayout(buttonLayout, 6, 0, 1, -1, qtc.Qt.AlignHorizontal_Mask)
+        aboutButton = qtw.QPushButton('About')
+        aboutButton.setToolTip('How-to and a lot more...')
+        aboutButton.clicked.connect(self.about)
+
+        layout.addWidget(aboutButton, 6, 0)
+
+        layout.addLayout(buttonLayout, 6, 1, 1, 1, qtc.Qt.AlignHorizontal_Mask)
 
         layout.setVerticalSpacing(15)
         layout.setRowStretch(0, 3)
@@ -124,6 +130,10 @@ class MainWindow(qtw.QWidget):
 
         folder = qtw.QFileDialog.getExistingDirectory(self, 'Select Directory')
         self.pathInput.setText(folder)
+
+    def about(self):
+
+        qtw.QMessageBox.information(self, 'About', 'Made with ❤️ by Vivek Kekuda\nLIMITATIONS:\nAll files must be in a sorted order. (Season 1 through last season)\nCan\'t use it to just find names for say just the second season.')
 
     def start(self):
 
@@ -198,7 +208,6 @@ class MainWindow(qtw.QWidget):
             else:
                 messageBox.information(self, 'Alert', 'Operation Cancelled.')
 
-
     def rename(self, title, subfolders, info, separator):
 
         progress = qtw.QProgressDialog(self)
@@ -219,36 +228,39 @@ class MainWindow(qtw.QWidget):
 
         for i, folder in enumerate(subfolders):
             progress.setValue(i)
-             
+                
             filesInFolder = os.listdir(folder)
             videos = self.sortedAlphanumeric([file_ for file_ in filesInFolder if os.path.splitext(file_)[1] in videoExtensions])
             
             if info is not None:
                 expectedEpisodes = len(info[f'Season {i+1}'].keys())
                 if len(videos) != expectedEpisodes:
-                    qtw.QMessageBox.critical(self, 'Failed', f'Mismatch in Season {i+1}. Didn\'t find expected number of episodes ({expectedEpisodes})')
-                    return
+                    qtw.QMessageBox.critical(self, 'Failed', f'Mismatch in Season {i+1}. Didn\'t find expected number of episodes ({expectedEpisodes}). Skipping...')
+                    continue
             
             # get list of videos in folder. for a given video, if subtitle with same name exists, rename subtitle too, else don't bother.
             
-            template = '{title} {which} {name}{extension}' if info is not None else '{title} {which}{extension}'
+            template = r'{title} {which} {name}{extension}' if info is not None else '{title} {which}{extension}'
             for j, video in enumerate(videos):
+                try:
+                    newName = separator.join(template.format(title=title, which=f'S{i+1:02d}E{j+1:02d}', name=info[f'Season {i+1}'][j+1].replace('/', '.') if info is not None else '', extension=os.path.splitext(video)[1]).split(' '))
+                    # print(f'{j+1}: {os.path.join(folder, video)}')
+                    # print(newName)
+
+                    os.rename(os.path.join(folder, video), os.path.join(folder, newName))
+
+                    fileName, _ = os.path.splitext(video)
+                    if os.path.isfile(os.path.join(folder, fileName + '.srt')):
+                        newFileName, _ = os.path.splitext(newName)
+                        os.rename(os.path.join(folder, fileName + '.srt'), os.path.join(folder, newFileName + '.srt'))
                 
-                newName = separator.join(template.format(title=title, which=f'S{i+1:02d}E{j+1:02d}', name=info[f'Season {i+1}'][j+1] if info is not None else '', extension=os.path.splitext(video)[1]).split(' '))
-                # print(f'{j+1}: {os.path.join(folder, video)}')
-                # print(newName)
-
-                os.rename(os.path.join(folder, video), os.path.join(folder, newName))
-
-                fileName, _ = os.path.splitext(video)
-                if os.path.isfile(os.path.join(folder, fileName + '.srt')):
-                    newFileName, _ = os.path.splitext(newName)
-                    os.rename(os.path.join(folder, fileName + '.srt'), os.path.join(folder, newFileName + '.srt'))
-  
+                except Exception as e:
+                    qtw.QMessageBox.critical(self, 'Failed', f'Exception Occurred: {e}')
             
         progress.setValue(len(subfolders))
-        
+        qtw.QMessageBox.information(self, 'Success', 'All done!')
 
+        
     def namesChecked(self):
         separator = self.separators[self.separatorGroup.checkedButton().text()]
         includeNames = self.episodeNamesCheckBox.isChecked()
